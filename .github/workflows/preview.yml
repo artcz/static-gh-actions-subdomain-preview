@@ -9,6 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GITHUB_BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+      PREVIEW_HOSTNAME: static-preview-v2.artcz.pl
 
     steps:
 
@@ -23,7 +24,7 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.DEPLOY_PRIV_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan static-preview.artcz.pl >> ~/.ssh/known_hosts
+          ssh-keyscan "${PREVIEW_HOSTNAME}" >> ~/.ssh/known_hosts
 
       - name: Get current branch name
         run: echo "BRANCH_NAME=${GITHUB_BRANCH_NAME##*/}" >> $GITHUB_ENV
@@ -35,8 +36,8 @@ jobs:
 
       - name: Upload
         run: |
-          ssh static_content_user@static-preview.artcz.pl "mkdir -p /home/static_content_user/static_sites/$CLEAN_BRANCH_NAME/"
-          scp build/index.html static_content_user@static-preview.artcz.pl:/home/static_content_user/static_sites/$CLEAN_BRANCH_NAME/
+          ssh static_content_user@"${PREVIEW_HOSTNAME}" "mkdir -p /home/static_content_user/static_sites/$CLEAN_BRANCH_NAME/"
+          scp build/index.html static_content_user@"${PREVIEW_HOSTNAME}":/home/static_content_user/static_sites/$CLEAN_BRANCH_NAME/
 
       - name: Update PR Comment
         uses: actions/github-script@v6
@@ -65,7 +66,7 @@ jobs:
             });
 
             const branch_name = process.env.CLEAN_BRANCH_NAME;
-            const url = "https://" + branch_name + ".static-preview-v2.artcz.pl";
+            const url = "https://" + branch_name + "." + process.env.PREVIEW_HOSTNAME;
             const timestamp = new Date().toISOString();
             const header = "\n|Key|Value|\n|---|---|\n"
             const body = preview_identifier + header + "|url|" + url + "|\n|last update|" + timestamp + "|";
