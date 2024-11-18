@@ -1,0 +1,89 @@
+name: Build and deploy
+
+on:
+  pull_request:
+
+jobs:
+  preview:
+    name: Run preview
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            build
+
+      - name: Set up ssh
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_PRIV_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan static-preview.artcz.pl >> ~/.ssh/known_hosts
+
+      - name: Get current branch name
+        run: echo "BRANCH_NAME=${GITHUB_BRANCH_NAME##*/}" >> $GITHUB_ENV
+
+      - name: Sanitize the branch name
+        run: |
+          CLEAN_BRANCH_NAME=$(echo "${BRANCH_NAME}" |tr -cd 'a-z0-9-' |cut -c1-32)
+          echo "CLEAN_BRANCH_NAME=${CLEAN_BRANCH_NAME}" >> $GITHUB_ENV
+
+      - name: Upload
+        run: |
+          ssh static_content_user@static-preview.artcz.pl "mkdir -p /home/static_content_user/static_sites/$CLEAN_BRANCH_NAME/"
+          scp build/index.html static_content_user@static-preview.artcz.pl:/home/static_content_user/static_sites/$CLEAN_BRANCH_NAME/
+
+      - name: Update PR Comment
+        uses: actions/github-script@v6
+        if: github.event_name == 'pull_request'
+
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            console.log("Hello world!");
+            const pr_id = ${{ github.event.number }};
+            console.log("PR Id %d", pr_id);
+
+            comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: Number(pr_id)
+            })
+
+            const preview_identifier = "# Preview available"
+
+            let comment_id = null;
+            comments.forEach(comment => {
+              if(comment.body.indexOf(preview_identifier) >= 0) {
+                comment_id = comment.id;
+              }
+            });
+
+            const branch_name = process.env.CLEAN_BRANCH_NAME;
+            const url = "https://" + branch_name + ".static-preview-v2.artcz.pl";
+            const timestamp = new Date().toISOString();
+            const header = "\n|Key|Value|\n|---|---|\n"
+            const body = preview_identifier + header + "|url|" + url + "|\n|last update|" + timestamp + "|";
+
+            if(comment_id > 0) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: comment_id,
+                body: body
+              });
+
+            } else {
+
+              await github.rest.issues.createComment({
+                issue_number: Number(pr_id),
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: body
+              });
+            }
